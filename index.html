@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Animated Gudiman Viewer - Centered Pivot</title>
+
+<style>
+html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+canvas { display:block; width:100%; height:100%; }
+
+.controls {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(0,0,0,0.4);
+    padding: 10px;
+    border-radius: 8px;
+    color: white;
+    font-family: sans-serif;
+    z-index: 1000;
+}
+.controls label { display:block; font-size:12px; margin-top:5px; }
+.controls input { width: 150px; }
+
+#toggle-controls,
+#toggle-camera {
+    position:absolute;
+    right:10px;
+    z-index:1001;
+    padding:6px 10px;
+    font-size:12px;
+    border-radius:6px;
+}
+#toggle-controls { top:10px; }
+#toggle-camera { top:45px; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+
+<!-- MediaPipe Face Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+
+<body>
+<canvas id="viewer-canvas"></canvas>
+
+<div class="controls">
+    <label>X Position <input type="range" id="posX" min="-2" max="2" step="0.01" value="0"></label>
+    <label>Y Position <input type="range" id="posY" min="-2" max="2" step="0.01" value="0"></label>
+    <label>Z Position <input type="range" id="posZ" min="-2" max="2" step="0.01" value="0"></label>
+    <label>Scale <input type="range" id="scale" min="0.1" max="2" step="0.01" value="1"></label>
+</div>
+
+<button id="toggle-controls">Toggle Controls</button>
+<button id="toggle-camera">Camera Tracking: OFF</button>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+// ------------------- Renderer -------------------
+const canvas = document.getElementById("viewer-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// ------------------- Scene -------------------
+const scene = new THREE.Scene();
+
+// ------------------- Camera -------------------
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 2, 7);
+
+// ------------------- Lights -------------------
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(2, 2, 3);
+scene.add(dirLight);
+
+// ------------------- Model Group -------------------
+const group = new THREE.Group();
+scene.add(group);
+
+const MODEL_URL = "https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb";
+const loader = new GLTFLoader();
+
+let model = null;
+let mixer = null;
+
+loader.load(MODEL_URL, (gltf) => {
+    model = gltf.scene;
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    model.position.sub(center);
+    group.add(model);
+
+    const maxDim = Math.max(size.x, size.y, size.z);
+    group.scale.setScalar(2 / maxDim);
+
+    if(gltf.animations.length){
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+    }
+});
+
+// ------------------- Rotation Logic -------------------
+let targetRot = { x:0, y:0 };
+let currentRot = { x:0, y:0 };
+const MAX_ROT = THREE.MathUtils.degToRad(10);
+const EASE = 0.08;
+
+// Mouse fallback
+window.addEventListener("mousemove", (e) => {
+    if(cameraTracking) return;
+    const x = (e.clientX / window.innerWidth) * 2 - 1;
+    const y = (e.clientY / window.innerHeight) * 2 - 1;
+    targetRot.y = THREE.MathUtils.clamp(x * MAX_ROT, -MAX_ROT, MAX_ROT);
+    targetRot.x = THREE.MathUtils.clamp(-y * MAX_ROT, -MAX_ROT, MAX_ROT);
+});
+
+// ------------------- Webcam Face Tracking -------------------
+let cameraTracking = false;
+
+const video = document.createElement("video");
+video.style.display = "none";
+document.body.appendChild(video);
+
+const faceDetection = new FaceDetection.FaceDetection({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+});
+
+faceDetection.setOptions({
+    model: "short",
+    minDetectionConfidence: 0.6
+});
+
+faceDetection.onResults((results) => {
+    if (!cameraTracking || !results.detections.length) return;
+
+    const box = results.detections[0].boundingBox;
+    const cx = box.xCenter - 0.5;
+    const cy = box.yCenter - 0.5;
+
+    targetRot.y = THREE.MathUtils.clamp(cx * MAX_ROT * 2, -MAX_ROT, MAX_ROT);
+    targetRot.x = THREE.MathUtils.clamp(-cy * MAX_ROT * 1.2, -MAX_ROT * 0.6, MAX_ROT * 0.6);
+});
+
+// Webcam start
+let cam = null;
+async function startCamera(){
+    cam = new Camera(video, {
+        onFrame: async () => {
+            await faceDetection.send({ image: video });
+        },
+        width: 640,
+        height: 480
+    });
+    cam.start();
+}
+
+// ------------------- Toggle Camera Tracking -------------------
+const camBtn = document.getElementById("toggle-camera");
+camBtn.addEventListener("click", async () => {
+    cameraTracking = !cameraTracking;
+    camBtn.textContent = `Camera Tracking: ${cameraTracking ? "ON" : "OFF"}`;
+
+    if(cameraTracking && !cam){
+        try { await startCamera(); }
+        catch(e){ console.warn("Camera denied"); }
+    }
+});
+
+// ------------------- Position & Scale Controls -------------------
+const posX = document.getElementById("posX");
+const posY = document.getElementById("posY");
+const posZ = document.getElementById("posZ");
+const scaleSlider = document.getElementById("scale");
+
+function updateGroupTransform(){
+    group.position.set(
+        parseFloat(posX.value),
+        parseFloat(posY.value),
+        parseFloat(posZ.value)
+    );
+    group.scale.setScalar(parseFloat(scaleSlider.value));
+}
+[posX,posY,posZ,scaleSlider].forEach(i => i.addEventListener("input", updateGroupTransform));
+
+// ------------------- Toggle Controls -------------------
+const controlsDiv = document.querySelector('.controls');
+document.getElementById('toggle-controls').onclick = () => {
+    controlsDiv.style.display = controlsDiv.style.display === 'none' ? 'block' : 'none';
+};
+
+// ------------------- Animation Loop -------------------
+const clock = new THREE.Clock();
+function animate(){
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    if(mixer) mixer.update(delta);
+
+    currentRot.x += (targetRot.x - currentRot.x) * EASE;
+    currentRot.y += (targetRot.y - currentRot.y) * EASE;
+
+    group.rotation.x = currentRot.x;
+    group.rotation.y = currentRot.y;
+
+    renderer.render(scene, camera);
+}
+animate();
+
+// ------------------- Resize -------------------
+window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
