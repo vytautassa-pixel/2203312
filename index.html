@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>TRCK2203312</title>
+<title>Tracking2203312</title>
 
 <style>
 html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
@@ -120,9 +120,9 @@ let target = { x:0, y:0, z:0 };
 let current = { x:0, y:0, z:0 };
 
 const LIMITS = {
-    yaw: THREE.MathUtils.degToRad(20),   // left/right rotation
-    pitch: THREE.MathUtils.degToRad(10), // up/down tilt
-    lean: 0.12                           // depth lean
+    yaw: THREE.MathUtils.degToRad(20),
+    pitch: THREE.MathUtils.degToRad(10),
+    lean: 0.12
 };
 
 const DEAD_ZONE = 0.02;
@@ -152,19 +152,19 @@ faceDetection.onResults(results => {
     if(!cameraTracking || !results.detections?.length) return;
 
     const b = results.detections[0].boundingBox;
-    const centerX = b.xCenter; // 0 = left, 1 = right
-    const centerY = b.yCenter; // 0 = top, 1 = bottom
+    const centerX = b.xCenter;
+    const centerY = b.yCenter;
     const boxSize = b.width * b.height;
 
-    // horizontal rotation (turn towards viewer)
+    // Horizontal rotation flipped so model follows you correctly
     const dx = centerX - 0.5;
-    if(Math.abs(dx) > DEAD_ZONE) target.y = dx * LIMITS.yaw * 2;
+    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 2; // <-- flipped sign
 
-    // vertical tilt
+    // Vertical tilt (optional flip depending on webcam)
     const dy = 0.5 - centerY;
     if(Math.abs(dy) > DEAD_ZONE) target.x = dy * LIMITS.pitch * 2;
 
-    // depth lean based on box size change
+    // Depth lean based on box size
     target.z = THREE.MathUtils.clamp((boxSize - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
     lastSize = boxSize;
 });
@@ -223,11 +223,11 @@ function animate(){
     current.y += (target.y - current.y) * EASE;
     current.z += (target.z - current.z) * EASE;
 
-    // body rotation slower than head
+    // Body rotation slower than head
     group.rotation.y = current.y * 0.6;
     group.rotation.x = current.x * 0.3;
 
-    // head pivot
+    // Head pivot
     headPivot.rotation.y = current.y;
     headPivot.rotation.x = current.x;
     headPivot.position.z = current.z;
