@@ -2,36 +2,81 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Tracking2203312</title>
+<title>2203312</title>
 
 <style>
-html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
-canvas { display:block; width:100%; height:100%; }
-
-.controls {
-    position: absolute;
-    top: 10px; left: 10px;
-    background: rgba(0,0,0,0.4);
-    padding: 10px;
-    border-radius: 8px;
-    color: white;
-    font-family: sans-serif;
-    z-index: 1000;
+html, body {
+    margin:0;
+    padding:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:black;
 }
-.controls label { display:block; font-size:12px; margin-top:5px; }
-.controls input { width: 150px; }
 
-#toggle-controls,
+/* Canvas hidden until unlocked */
+canvas {
+    display:none;
+    width:100%;
+    height:100%;
+}
+
+/* Password overlay */
+#lockscreen {
+    position:fixed;
+    inset:0;
+    background:radial-gradient(circle at top, #222, #000);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9999;
+    font-family:sans-serif;
+    color:white;
+}
+
+#lockscreen .box {
+    background:rgba(0,0,0,0.6);
+    padding:30px;
+    border-radius:12px;
+    text-align:center;
+    box-shadow:0 0 40px rgba(0,0,0,0.6);
+}
+
+#lockscreen input {
+    margin-top:15px;
+    padding:10px;
+    width:200px;
+    border-radius:6px;
+    border:none;
+    font-size:16px;
+}
+
+#lockscreen button {
+    margin-top:15px;
+    padding:10px 18px;
+    border:none;
+    border-radius:6px;
+    font-size:14px;
+    cursor:pointer;
+}
+
+#error {
+    margin-top:10px;
+    color:#ff6b6b;
+    font-size:13px;
+}
+
+/* Camera toggle */
 #toggle-camera {
     position:absolute;
+    top:10px;
     right:10px;
-    z-index:1001;
+    z-index:10;
     padding:6px 10px;
     font-size:12px;
     border-radius:6px;
+    display:none;
 }
-#toggle-controls { top:10px; }
-#toggle-camera { top:45px; }
 </style>
 
 <script type="importmap">
@@ -48,74 +93,89 @@ canvas { display:block; width:100%; height:100%; }
 </head>
 
 <body>
-<canvas id="viewer-canvas"></canvas>
 
-<div class="controls">
-    <label>X Position <input type="range" id="posX" min="-2" max="2" step="0.01" value="0"></label>
-    <label>Y Position <input type="range" id="posY" min="-2" max="2" step="0.01" value="0"></label>
-    <label>Z Position <input type="range" id="posZ" min="-2" max="2" step="0.01" value="0"></label>
-    <label>Scale <input type="range" id="scale" min="0.1" max="2" step="0.01" value="1"></label>
+<!-- PASSWORD SCREEN -->
+<div id="lockscreen">
+    <div class="box">
+        <h2>Protected Viewer</h2>
+        <p>Enter password to continue</p>
+        <input type="password" id="password" placeholder="Password">
+        <br>
+        <button onclick="unlock()">Enter</button>
+        <div id="error"></div>
+    </div>
 </div>
 
-<button id="toggle-controls">Toggle Controls</button>
 <button id="toggle-camera">Camera Tracking: OFF</button>
+<canvas id="viewer-canvas"></canvas>
 
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-// ------------------- Renderer -------------------
+/* ---------------- PASSWORD ---------------- */
+const PASSWORD = "mrGudiman";
+window.unlock = () => {
+    const input = document.getElementById("password").value;
+    if(input === PASSWORD){
+        document.getElementById("lockscreen").remove();
+        document.getElementById("viewer-canvas").style.display = "block";
+        document.getElementById("toggle-camera").style.display = "block";
+        init();
+    } else {
+        document.getElementById("error").textContent = "Incorrect password";
+    }
+};
+
+/* ---------------- THREE INIT ---------------- */
+function init(){
+
+// Renderer
 const canvas = document.getElementById("viewer-canvas");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-// ------------------- Scene -------------------
+// Scene & Camera
 const scene = new THREE.Scene();
-
-// ------------------- Camera -------------------
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
 camera.position.set(0, 2, 7);
 
-// ------------------- Lights -------------------
+// Lights
 scene.add(new THREE.AmbientLight(0xffffff, 1.2));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(2, 2, 3);
 scene.add(dirLight);
 
-// ------------------- Model Group -------------------
+// Model group
 const group = new THREE.Group();
 scene.add(group);
 
 const headPivot = new THREE.Group();
 group.add(headPivot);
 
-const MODEL_URL = "https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb";
+// Load model
 const loader = new GLTFLoader();
-
-let model = null;
 let mixer = null;
 
-loader.load(MODEL_URL, (gltf) => {
-    model = gltf.scene;
-
+loader.load("https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb", gltf => {
+    const model = gltf.scene;
     const box = new THREE.Box3().setFromObject(model);
-    const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
 
     model.position.sub(center);
     headPivot.add(model);
 
-    const maxDim = Math.max(size.x, size.y, size.z);
-    group.scale.setScalar(2 / maxDim);
+    group.scale.setScalar(2 / Math.max(size.x, size.y, size.z));
 
     if(gltf.animations.length){
         mixer = new THREE.AnimationMixer(model);
-        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+        gltf.animations.forEach(a => mixer.clipAction(a).play());
     }
 });
 
-// ------------------- Rotation System -------------------
+// Rotation state
 let target = { x:0, y:0, z:0 };
 let current = { x:0, y:0, z:0 };
 
@@ -125,94 +185,60 @@ const LIMITS = {
     lean: 0.12
 };
 
-const DEAD_ZONE = 0.02;
 const EASE = 0.08;
+const DEAD_ZONE = 0.02;
 
-// ------------------- Mouse fallback -------------------
-window.addEventListener("mousemove", (e) => {
-    if(cameraTracking) return;
-    const x = (e.clientX / window.innerWidth) * 2 - 1;
-    const y = (e.clientY / window.innerHeight) * 2 - 1;
-    target.y = THREE.MathUtils.clamp(x * LIMITS.yaw, -LIMITS.yaw, LIMITS.yaw);
-    target.x = THREE.MathUtils.clamp(-y * LIMITS.pitch, -LIMITS.pitch, LIMITS.pitch);
-});
-
-// ------------------- FaceDetection Tracking -------------------
+/* ---------------- CAMERA TRACKING ---------------- */
 let cameraTracking = false;
 const video = document.createElement("video");
 video.style.display = "none";
 document.body.appendChild(video);
 
-const faceDetection = new FaceDetection({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}` });
-faceDetection.setOptions({ model: "short", minDetectionConfidence: 0.6 });
+const faceDetection = new FaceDetection({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`
+});
+faceDetection.setOptions({ model:"short", minDetectionConfidence:0.6 });
 
 let lastSize = 0;
 
-faceDetection.onResults(results => {
-    if(!cameraTracking || !results.detections?.length) return;
+faceDetection.onResults(res => {
+    if(!cameraTracking || !res.detections?.length) return;
 
-    const b = results.detections[0].boundingBox;
-    const centerX = b.xCenter;
-    const centerY = b.yCenter;
-    const boxSize = b.width * b.height;
+    const b = res.detections[0].boundingBox;
+    const dx = b.xCenter - 0.5;
+    const dy = 0.5 - b.yCenter;
+    const size = b.width * b.height;
 
-    // Horizontal rotation flipped so model follows you correctly
-    const dx = centerX - 0.5;
-    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 2; // <-- flipped sign
-
-    // Vertical tilt (optional flip depending on webcam)
-    const dy = 0.5 - centerY;
+    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 2;
     if(Math.abs(dy) > DEAD_ZONE) target.x = dy * LIMITS.pitch * 2;
 
-    // Depth lean based on box size
-    target.z = THREE.MathUtils.clamp((boxSize - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
-    lastSize = boxSize;
+    target.z = THREE.MathUtils.clamp((size - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
+    lastSize = size;
 });
 
-// ------------------- Camera Init -------------------
 let cam = null;
 async function startCamera(){
-    await navigator.mediaDevices.getUserMedia({ video: true });
-
+    await navigator.mediaDevices.getUserMedia({ video:true });
     cam = new Camera(video, {
-        facingMode: "user",
-        width: 640,
-        height: 480,
+        facingMode:"user",
         onFrame: async () => {
-            if(video.readyState >= 2) await faceDetection.send({ image: video });
+            if(video.readyState >= 2)
+                await faceDetection.send({ image: video });
         }
     });
     cam.start();
 }
 
-// ------------------- Toggle Camera -------------------
 const camBtn = document.getElementById("toggle-camera");
 camBtn.onclick = async () => {
     cameraTracking = !cameraTracking;
     camBtn.textContent = `Camera Tracking: ${cameraTracking ? "ON" : "OFF"}`;
     if(cameraTracking && !cam){
-        try { await startCamera(); } catch(e){ console.warn("Camera init failed"); }
+        try { await startCamera(); } catch {}
     }
 };
 
-// ------------------- Controls -------------------
-const posX = document.getElementById("posX");
-const posY = document.getElementById("posY");
-const posZ = document.getElementById("posZ");
-const scaleSlider = document.getElementById("scale");
-
-function updateGroupTransform(){
-    group.position.set(+posX.value, +posY.value, +posZ.value);
-    group.scale.setScalar(+scaleSlider.value);
-}
-[posX,posY,posZ,scaleSlider].forEach(i => i.addEventListener("input", updateGroupTransform));
-
-document.getElementById("toggle-controls").onclick = () => {
-    document.querySelector(".controls").style.display =
-        document.querySelector(".controls").style.display === "none" ? "block" : "none";
-};
-
-// ------------------- Animation Loop -------------------
+/* ---------------- LOOP ---------------- */
 const clock = new THREE.Clock();
 function animate(){
     requestAnimationFrame(animate);
@@ -223,11 +249,7 @@ function animate(){
     current.y += (target.y - current.y) * EASE;
     current.z += (target.z - current.z) * EASE;
 
-    // Body rotation slower than head
     group.rotation.y = current.y * 0.6;
-    group.rotation.x = current.x * 0.3;
-
-    // Head pivot
     headPivot.rotation.y = current.y;
     headPivot.rotation.x = current.x;
     headPivot.position.z = current.z;
@@ -236,12 +258,14 @@ function animate(){
 }
 animate();
 
-// ------------------- Resize -------------------
+// Resize
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+}
 </script>
+
 </body>
 </html>
