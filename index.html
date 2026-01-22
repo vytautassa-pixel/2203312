@@ -43,7 +43,6 @@ canvas { display:block; width:100%; height:100%; }
 }
 </script>
 
-<!-- MediaPipe Face Detection -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
@@ -88,6 +87,10 @@ scene.add(dirLight);
 const group = new THREE.Group();
 scene.add(group);
 
+// Head pivot for eye-level focus
+const headPivot = new THREE.Group();
+group.add(headPivot);
+
 const MODEL_URL = "https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb";
 const loader = new GLTFLoader();
 
@@ -102,7 +105,7 @@ loader.load(MODEL_URL, (gltf) => {
     const center = box.getCenter(new THREE.Vector3());
 
     model.position.sub(center);
-    group.add(model);
+    headPivot.add(model);
 
     const maxDim = Math.max(size.x, size.y, size.z);
     group.scale.setScalar(2 / maxDim);
@@ -113,107 +116,127 @@ loader.load(MODEL_URL, (gltf) => {
     }
 });
 
-// ------------------- Rotation Logic -------------------
-let targetRot = { x:0, y:0 };
-let currentRot = { x:0, y:0 };
-const MAX_ROT = THREE.MathUtils.degToRad(10);
-const EASE = 0.08;
+// ------------------- Rotation System -------------------
+let target = { x:0, y:0, z:0 };
+let current = { x:0, y:0, z:0 };
 
-// Mouse fallback
+const LIMITS = {
+    yaw: THREE.MathUtils.degToRad(12),
+    pitch: THREE.MathUtils.degToRad(8),
+    lean: 0.15
+};
+
+const DEAD_ZONE = 0.005; // smaller dead-zone for webcams
+const EASE = 0.06;
+
+let smoothX = 0, smoothY = 0;
+
+// ------------------- Mouse fallback -------------------
 window.addEventListener("mousemove", (e) => {
     if(cameraTracking) return;
     const x = (e.clientX / window.innerWidth) * 2 - 1;
     const y = (e.clientY / window.innerHeight) * 2 - 1;
-    targetRot.y = THREE.MathUtils.clamp(x * MAX_ROT, -MAX_ROT, MAX_ROT);
-    targetRot.x = THREE.MathUtils.clamp(-y * MAX_ROT, -MAX_ROT, MAX_ROT);
+    target.y = THREE.MathUtils.clamp(x * LIMITS.yaw, -LIMITS.yaw, LIMITS.yaw);
+    target.x = THREE.MathUtils.clamp(-y * LIMITS.pitch, -LIMITS.pitch, LIMITS.pitch);
 });
 
-// ------------------- Webcam Face Tracking -------------------
+// ------------------- Face Tracking -------------------
 let cameraTracking = false;
-
 const video = document.createElement("video");
 video.style.display = "none";
 document.body.appendChild(video);
 
-const faceDetection = new FaceDetection({
-    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+const faceDetection = new FaceDetection({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}` });
+faceDetection.setOptions({ model:"short", minDetectionConfidence:0.6 });
+
+let lastSize = 0;
+
+faceDetection.onResults(res => {
+    if(!cameraTracking || !res.detections.length) return;
+
+    const b = res.detections[0].boundingBox;
+
+    // Smooth center
+    smoothX += (b.xCenter - 0.5 - smoothX) * 0.15;
+    smoothY += (b.yCenter - 0.5 - smoothY) * 0.15;
+
+    // Dead-zone check
+    if(Math.abs(smoothX) > DEAD_ZONE) target.y = THREE.MathUtils.clamp(smoothX * LIMITS.yaw * 2, -LIMITS.yaw, LIMITS.yaw);
+    if(Math.abs(smoothY) > DEAD_ZONE) target.x = THREE.MathUtils.clamp(-smoothY * LIMITS.pitch * 1.5, -LIMITS.pitch, LIMITS.pitch);
+
+    // Depth lean based on box size change
+    const size = b.width * b.height;
+    target.z = THREE.MathUtils.clamp((size - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
+    lastSize = size;
+
+    // Optional debug
+    // console.log("Face center:", smoothX.toFixed(2), smoothY.toFixed(2), "size:", size.toFixed(3));
 });
 
-faceDetection.setOptions({
-    model: "short",
-    minDetectionConfidence: 0.6
-});
-
-faceDetection.onResults((results) => {
-    if (!cameraTracking || !results.detections.length) return;
-
-    const box = results.detections[0].boundingBox;
-    const cx = box.xCenter - 0.5;
-    const cy = box.yCenter - 0.5;
-
-    targetRot.y = THREE.MathUtils.clamp(cx * MAX_ROT * 2, -MAX_ROT, MAX_ROT);
-    targetRot.x = THREE.MathUtils.clamp(-cy * MAX_ROT * 1.2, -MAX_ROT * 0.6, MAX_ROT * 0.6);
-});
-
-// Webcam start
+// ------------------- Camera Init (Mobile safe) -------------------
 let cam = null;
 async function startCamera(){
+    // Ensure permission and video ready
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
     cam = new Camera(video, {
-        onFrame: async () => {
-            await faceDetection.send({ image: video });
-        },
+        facingMode: "user",
         width: 640,
-        height: 480
+        height: 480,
+        onFrame: async () => {
+            if(video.readyState >= 2) await faceDetection.send({ image: video });
+        }
     });
+
     cam.start();
 }
 
-// ------------------- Toggle Camera Tracking -------------------
+// ------------------- Toggle Camera -------------------
 const camBtn = document.getElementById("toggle-camera");
-camBtn.addEventListener("click", async () => {
+camBtn.onclick = async () => {
     cameraTracking = !cameraTracking;
     camBtn.textContent = `Camera Tracking: ${cameraTracking ? "ON" : "OFF"}`;
-
     if(cameraTracking && !cam){
-        try { await startCamera(); }
-        catch(e){ console.warn("Camera denied"); }
+        try { await startCamera(); } catch(e){ console.warn("Camera init failed"); }
     }
-});
+};
 
-// ------------------- Position & Scale Controls -------------------
+// ------------------- Controls -------------------
 const posX = document.getElementById("posX");
 const posY = document.getElementById("posY");
 const posZ = document.getElementById("posZ");
 const scaleSlider = document.getElementById("scale");
 
 function updateGroupTransform(){
-    group.position.set(
-        parseFloat(posX.value),
-        parseFloat(posY.value),
-        parseFloat(posZ.value)
-    );
-    group.scale.setScalar(parseFloat(scaleSlider.value));
+    group.position.set(+posX.value, +posY.value, +posZ.value);
+    group.scale.setScalar(+scaleSlider.value);
 }
 [posX,posY,posZ,scaleSlider].forEach(i => i.addEventListener("input", updateGroupTransform));
 
-// ------------------- Toggle Controls -------------------
-const controlsDiv = document.querySelector('.controls');
-document.getElementById('toggle-controls').onclick = () => {
-    controlsDiv.style.display = controlsDiv.style.display === 'none' ? 'block' : 'none';
+document.getElementById("toggle-controls").onclick = () => {
+    document.querySelector(".controls").style.display =
+        document.querySelector(".controls").style.display === "none" ? "block" : "none";
 };
 
 // ------------------- Animation Loop -------------------
 const clock = new THREE.Clock();
 function animate(){
     requestAnimationFrame(animate);
-    const delta = clock.getDelta();
-    if(mixer) mixer.update(delta);
+    const dt = clock.getDelta();
+    if(mixer) mixer.update(dt);
 
-    currentRot.x += (targetRot.x - currentRot.x) * EASE;
-    currentRot.y += (targetRot.y - currentRot.y) * EASE;
+    current.x += (target.x - current.x) * EASE;
+    current.y += (target.y - current.y) * EASE;
+    current.z += (target.z - current.z) * EASE;
 
-    group.rotation.x = currentRot.x;
-    group.rotation.y = currentRot.y;
+    // Body rotation slower
+    group.rotation.y = current.y * 0.6;
+    group.rotation.x = current.x * 0.3;
+
+    // Head pivot
+    headPivot.rotation.y = current.y;
+    headPivot.rotation.x = current.x;
+    headPivot.position.z = current.z;
 
     renderer.render(scene, camera);
 }
