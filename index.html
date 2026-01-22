@@ -135,7 +135,7 @@ const video = document.createElement("video");
 video.style.display = "none";
 document.body.appendChild(video);
 
-const faceDetection = new FaceDetection.FaceDetection({
+const faceDetection = new FaceDetection({
     locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
 });
 
