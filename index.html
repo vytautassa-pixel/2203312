@@ -94,38 +94,7 @@ canvas {
 
 <body>
 
-<!-- PASSWORD SCREEN -->
-<div id="lockscreen">
-    <div class="box">
-        <h2>Protected Viewer</h2>
-        <p>Enter password to continue</p>
-        <input type="password" id="password" placeholder="Password">
-        <br>
-        <button onclick="unlock()">Enter</button>
-        <div id="error"></div>
-    </div>
-</div>
 
-<button id="toggle-camera">Camera Tracking: OFF</button>
-<canvas id="viewer-canvas"></canvas>
-
-<script type="module">
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-
-/* ---------------- PASSWORD ---------------- */
-const PASSWORD = "mrGudiman";
-window.unlock = () => {
-    const input = document.getElementById("password").value;
-    if(input === PASSWORD){
-        document.getElementById("lockscreen").remove();
-        document.getElementById("viewer-canvas").style.display = "block";
-        document.getElementById("toggle-camera").style.display = "block";
-        init();
-    } else {
-        document.getElementById("error").textContent = "Incorrect password";
-    }
-};
 
 /* ---------------- THREE INIT ---------------- */
 function init(){
