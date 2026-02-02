@@ -1,29 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <title>2203312</title>
 
 <style>
 html, body {
-    margin:0;
-    padding:0;
-    width:100%;
-    height:100%;
-    overflow:hidden;
-    background:transparent;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
 }
-    
+
+#viewer-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
 /* Camera toggle */
 #toggle-camera {
-    position:absolute;
-    top:10px;
-    right:10px;
-    z-index:10;
-    padding:6px 10px;
-    font-size:12px;
-    border-radius:6px;
-    display:none;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 6px;
 }
 </style>
 
@@ -40,145 +45,188 @@ html, body {
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 
+<body>
+
+<canvas id="viewer-canvas"></canvas>
+<button id="toggle-camera">Camera Tracking: OFF</button>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 /* ---------------- THREE INIT ---------------- */
-function init(){
+function init() {
 
-// Renderer
-const canvas = document.getElementById("viewer-canvas");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-// Scene & Camera
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-camera.position.set(0, 2, 7);
-
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(2, 2, 3);
-scene.add(dirLight);
-
-// Model group
-const group = new THREE.Group();
-scene.add(group);
-
-const headPivot = new THREE.Group();
-group.add(headPivot);
-
-// Load model
-const loader = new GLTFLoader();
-let mixer = null;
-
-loader.load("https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb", gltf => {
-    const model = gltf.scene;
-    const box = new THREE.Box3().setFromObject(model);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-
-    model.position.sub(center);
-    headPivot.add(model);
-
-    group.scale.setScalar(2 / Math.max(size.x, size.y, size.z));
-
-    if(gltf.animations.length){
-        mixer = new THREE.AnimationMixer(model);
-        gltf.animations.forEach(a => mixer.clipAction(a).play());
-    }
-});
-
-// Rotation state
-let target = { x:0, y:0, z:0 };
-let current = { x:0, y:0, z:0 };
-
-const LIMITS = {
-    yaw: THREE.MathUtils.degToRad(20),
-    pitch: THREE.MathUtils.degToRad(10),
-    lean: 0.12
-};
-
-const EASE = 0.08;
-const DEAD_ZONE = 0.02;
-
-/* ---------------- CAMERA TRACKING ---------------- */
-let cameraTracking = false;
-const video = document.createElement("video");
-video.style.display = "none";
-document.body.appendChild(video);
-
-const faceDetection = new FaceDetection({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`
-});
-faceDetection.setOptions({ model:"short", minDetectionConfidence:0.6 });
-
-let lastSize = 0;
-
-faceDetection.onResults(res => {
-    if(!cameraTracking || !res.detections?.length) return;
-
-    const b = res.detections[0].boundingBox;
-    const dx = b.xCenter - 0.5;
-    const dy = 0.5 - b.yCenter;
-    const size = b.width * b.height;
-
-    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 5;
-    if(Math.abs(dy) > DEAD_ZONE) target.x = dy * LIMITS.pitch * 5;
-
-    target.z = THREE.MathUtils.clamp((size - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
-    lastSize = size;
-});
-
-let cam = null;
-async function startCamera(){
-    await navigator.mediaDevices.getUserMedia({ video:true });
-    cam = new Camera(video, {
-        facingMode:"user",
-        onFrame: async () => {
-            if(video.readyState >= 2)
-                await faceDetection.send({ image: video });
-        }
+    // Renderer
+    const canvas = document.getElementById("viewer-canvas");
+    const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true
     });
-    cam.start();
-}
-
-const camBtn = document.getElementById("toggle-camera");
-camBtn.onclick = async () => {
-    cameraTracking = !cameraTracking;
-    camBtn.textContent = `Camera Tracking: ${cameraTracking ? "ON" : "OFF"}`;
-    if(cameraTracking && !cam){
-        try { await startCamera(); } catch {}
-    }
-};
-
-/* ---------------- LOOP ---------------- */
-const clock = new THREE.Clock();
-function animate(){
-    requestAnimationFrame(animate);
-    const dt = clock.getDelta();
-    if(mixer) mixer.update(dt);
-
-    current.x += (target.x - current.x) * EASE;
-    current.y += (target.y - current.y) * EASE;
-    current.z += (target.z - current.z) * EASE;
-
-    group.rotation.y = current.y * 0.6;
-    headPivot.rotation.y = current.y;
-    headPivot.rotation.x = current.x;
-    headPivot.position.z = current.z;
-
-    renderer.render(scene, camera);
-}
-animate();
-
-// Resize
-window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // Scene & Camera
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+    );
+    camera.position.set(0, 2, 7);
+
+    // Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(2, 2, 3);
+    scene.add(dirLight);
+
+    // Model group
+    const group = new THREE.Group();
+    scene.add(group);
+
+    const headPivot = new THREE.Group();
+    group.add(headPivot);
+
+    // Load model
+    const loader = new GLTFLoader();
+    let mixer = null;
+
+    loader.load(
+        "https://vytautassa-pixel.github.io/1100234/animated_gudiman.glb",
+        gltf => {
+            const model = gltf.scene;
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+
+            model.position.sub(center);
+            headPivot.add(model);
+
+            group.scale.setScalar(2 / Math.max(size.x, size.y, size.z));
+
+            if (gltf.animations.length) {
+                mixer = new THREE.AnimationMixer(model);
+                gltf.animations.forEach(a =>
+                    mixer.clipAction(a).play()
+                );
+            }
+        }
+    );
+
+    // Rotation state
+    const target = { x: 0, y: 0, z: 0 };
+    const current = { x: 0, y: 0, z: 0 };
+
+    const LIMITS = {
+        yaw: THREE.MathUtils.degToRad(20),
+        pitch: THREE.MathUtils.degToRad(10),
+        lean: 0.12
+    };
+
+    const EASE = 0.08;
+    const DEAD_ZONE = 0.02;
+
+    /* ---------------- CAMERA TRACKING ---------------- */
+    let cameraTracking = false;
+    const video = document.createElement("video");
+    video.style.display = "none";
+    document.body.appendChild(video);
+
+    const faceDetection = new FaceDetection({
+        locateFile: f =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`
+    });
+    faceDetection.setOptions({
+        model: "short",
+        minDetectionConfidence: 0.6
+    });
+
+    let lastSize = 0;
+
+    faceDetection.onResults(res => {
+        if (!cameraTracking || !res.detections?.length) return;
+
+        const b = res.detections[0].boundingBox;
+        const dx = b.xCenter - 0.5;
+        const dy = 0.5 - b.yCenter;
+        const size = b.width * b.height;
+
+        if (Math.abs(dx) > DEAD_ZONE)
+            target.y = -dx * LIMITS.yaw * 5;
+
+        if (Math.abs(dy) > DEAD_ZONE)
+            target.x = dy * LIMITS.pitch * 5;
+
+        target.z = THREE.MathUtils.clamp(
+            (size - lastSize) * 6,
+            -LIMITS.lean,
+            LIMITS.lean
+        );
+
+        lastSize = size;
+    });
+
+    let cam = null;
+
+    async function startCamera() {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        cam = new Camera(video, {
+            facingMode: "user",
+            onFrame: async () => {
+                if (video.readyState >= 2) {
+                    await faceDetection.send({ image: video });
+                }
+            }
+        });
+        cam.start();
+    }
+
+    const camBtn = document.getElementById("toggle-camera");
+    camBtn.onclick = async () => {
+        cameraTracking = !cameraTracking;
+        camBtn.textContent =
+            `Camera Tracking: ${cameraTracking ? "ON" : "OFF"}`;
+
+        if (cameraTracking && !cam) {
+            try { await startCamera(); } catch {}
+        }
+    };
+
+    /* ---------------- LOOP ---------------- */
+    const clock = new THREE.Clock();
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const dt = clock.getDelta();
+
+        if (mixer) mixer.update(dt);
+
+        current.x += (target.x - current.x) * EASE;
+        current.y += (target.y - current.y) * EASE;
+        current.z += (target.z - current.z) * EASE;
+
+        group.rotation.y = current.y * 0.6;
+        headPivot.rotation.y = current.y;
+        headPivot.rotation.x = current.x;
+        headPivot.position.z = current.z;
+
+        renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Resize
+    window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 }
+
+init();
 </script>
 
 </body>
