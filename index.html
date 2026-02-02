@@ -209,8 +209,8 @@ faceDetection.onResults(res => {
     const dy = 0.5 - b.yCenter;
     const size = b.width * b.height;
 
-    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 2;
-    if(Math.abs(dy) > DEAD_ZONE) target.x = dy * LIMITS.pitch * 2;
+    if(Math.abs(dx) > DEAD_ZONE) target.y = -dx * LIMITS.yaw * 5;
+    if(Math.abs(dy) > DEAD_ZONE) target.x = dy * LIMITS.pitch * 5;
 
     target.z = THREE.MathUtils.clamp((size - lastSize) * 6, -LIMITS.lean, LIMITS.lean);
     lastSize = size;
